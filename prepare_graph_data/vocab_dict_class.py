@@ -1,3 +1,5 @@
+from common import remove_string_literal
+
 class VocabDict(object):
     def __init__(self, name = ""):
         self.name = name
@@ -20,5 +22,19 @@ class VocabDict(object):
     
     def to_idx(self, word : str):
         return self.word2idx[word]
+    
+    def update_vocab(self, pyg_data):
+        # Node attr
+        for i, label in enumerate(pyg_data.label):
+            label = remove_string_literal(label)
+            self.add_words(label)
+            pyg_data.label[i] = self.to_idx(label)
+
+        # Edge attr
+        for i, edge_attr in enumerate(pyg_data.type):
+            self.add_words(edge_attr)
+            pyg_data.type[i] = self.to_idx(edge_attr)
+
+        return pyg_data
     
     
