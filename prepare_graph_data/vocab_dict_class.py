@@ -8,6 +8,7 @@ class VocabDict(object):
         self.idx2word = {}
         self.num_words = 0
     
+    
     def add_words(self, word : str):
         if word not in self.word2idx:
             self.word2idx[word] = self.num_words

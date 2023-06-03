@@ -5,20 +5,28 @@ import pandas as pd
 from tqdm import tqdm
 import numpy as np
 from collections import namedtuple
+import pickle
+import json
 
 import networkx as nx
 from tree_sitter import Parser, Node
 
 from common import draw_graph, initialize_cpp_tree_sitter, add_string_literal
 from make_pyg_graph import pyg_graph_dataset
+from pdg_graph import make_pdg_graph
 
 from torch_geometric.data import Data
 from torch_geometric.utils.convert import from_networkx
 
+from vocab_dict_class import VocabDict
+
+
 
 StringLiteral = namedtuple('StringLiteral', ['value'])
-DATA_PATH = "../data/cpreprocess/"
+DATA_PATH = "../data/cpp/cpp/"
 OUTPUT_DIR = "../data/source_code_graph/"
+TAG_PATH = "../data/tags.json"
+TOPIC_PATH = "../data/problem_topics.json"
 FILE_NAMES = os.listdir(DATA_PATH)
 
 print(len(FILE_NAMES))
@@ -37,6 +45,15 @@ CPP_LANGUAGE = initialize_cpp_tree_sitter()
 # CPP Parser
 parser = Parser()
 parser.set_language(CPP_LANGUAGE)
+
+# Tags File
+with open(TAG_PATH, "r") as infile:
+    tag_dict = json.load(infile)
+    infile.close()
+
+with open(TOPIC_PATH, "r") as infile:
+    topic_dict = json.load(infile)
+    infile.close()
     
 def add_self_loop(G, node : Node, edge_attr : str, color : str):
     G.add_edge(node, node, type = edge_attr, color = color)
@@ -134,45 +151,63 @@ def tree_to_graph(root):
     
     return G
 
-
-def ast_transform(source_code : str):
+def graph_transform(source_code : str):
     try:
         tree = parser.parse(bytes(source_code, "utf-8"))
         root = tree.root_node
         
-        ast = tree_to_graph(root)
+        graph = tree_to_graph(root)
     except:
-        ast = None
-    
-    return ast
+        graph = None
+
+    return graph
 
 def main():
-    dataset = pyg_graph_dataset()
-    w_num = s_num = 0
-    
-    progress_bar = tqdm(FILE_NAMES[:])
+    vocab_dict = VocabDict()
+    w_num = s_num = tag_skip_num = topic_skip_num = 0
 
-    for fn in progress_bar:
-        
-        df = pd.read_csv(open(DATA_PATH + fn, 'r'), encoding='utf-8', engine='c')
-        
-        df["ast_graph"] = df["source_code"].apply(lambda x : ast_transform(x))
-
-        #with open("sample.cpp", "r") as infile:
-        #    source_code = infile.read()
-        
-        #ast = ast_transform(source_code)
-        #draw_graph(src_code_graph, "type")
-        #nx.drawing.nx_pydot.write_dot(ast, "sample.dot")
-        written_num, skip_num = dataset.parse(df["ast_graph"], df[""])
-        
-        w_num += written_num
-        s_num += skip_num
-
-        progress_bar.set_postfix({"written" : w_num, "skip" : s_num})
+    progress_bar = tqdm(os.listdir(DATA_PATH))
+    dataset = pyg_graph_dataset(name = "source_code_graph", vocab_dict=vocab_dict)
     
-    dataset.serialize(filename = fn, dest = OUTPUT_DIR)
-    
+    save_num = 0
+    for folder in progress_bar:
+        if os.path.isfile(os.path.join(DATA_PATH, folder)) == False:
+            for cpp_file in os.listdir(os.path.join(DATA_PATH, folder)):
+                if cpp_file.endswith("cpp"):
+                    save_num +=1 
+                    with open(os.path.join(DATA_PATH, folder, cpp_file), "r") as infile:
+                        source_code = infile.read()
+
+                    graph = graph_transform(source_code)
+                    #draw_graph(src_code_graph, "type")
+                    #nx.drawing.nx_pydot.write_dot(graph, "sample.dot")
+                    try:
+                        problem_tag = tag_dict[folder]
+                    except:
+                        problem_tag = None
+                        tag_skip_num +=1
+                    
+                    try:
+                        problem_topic = topic_dict[folder]
+                    except:
+                        problem_topic = None
+                        topic_skip_num +=1
+
+                    vocab_dict, written_num, skip_num = dataset.parse(graph, folder, cpp_file, problem_topic, problem_tag)
+                    
+                    w_num += written_num
+                    s_num += skip_num
+
+                    progress_bar.set_postfix({"written" : w_num, "skip" : s_num, "tag_skip" : tag_skip_num, "topic_skip" : topic_skip_num})
+                    
+        dataset.serialize(filename = folder, dest = OUTPUT_DIR)
+        dataset = pyg_graph_dataset(name = "source_code_graph", vocab_dict=vocab_dict)
+                
+        
+    # Save vocab dict
+    with open(os.path.join(OUTPUT_DIR + "vocab_dict.pickle"), "wb") as f:
+        pickle.dump(vocab_dict, f)
+
 if __name__ == "__main__":
     main()
 

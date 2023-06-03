@@ -72,3 +72,5 @@ def draw_graph(G, label=None):
 def add_string_literal(s : str):
     return '"' + s + '"'
 
+def remove_string_literal(s:str):
+    return s[1:len(s) - 1]
